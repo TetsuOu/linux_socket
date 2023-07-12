@@ -20,7 +20,40 @@ g++ -std=c++11 per_conn_per_thread_server.cpp -lpthread -o per_conn_per_thread_s
 
 ### IO多路复用和Reactor模型
 
+为什么IO多路复用搭配非阻塞IO
 
+使用epoll实现了一个线程管理多个套接字，当某个套接字有读写事件时，epoll_wait调用返回，告诉我们哪些套接字能读，但并不会告诉我们某个套接字上有多少数据可读。
+
+- 使用非阻塞IO处理方式：我们只要循环的read，直到读完全部的数据即可（read返回0）
+
+- 使用阻塞IO处理方式：每次只能调用一次read，因为我们并不知道下一次循环中还有没有数据可读，如果没数据就会阻塞整个进程了，所以只能等待下一次的epoll_wait返回了。这对于水平触发还可行，但对于边缘触发就不行了，因为我们不知道这个套接字还会不会有新数据写入，如果对端不再写入新数据，那缓冲区中剩下的数据就再也读不到了。
+
+Reactor模型采用的是多线程模型。
+
+### 伪代码
+
+```c++
+class HandleThread {
+    std::vector<int> handle_fds;
+    void addFd(int fd) {handle_fds.push_back(fd)};
+    void work();
+}
+HandleThread::work() {
+    for(;;) {
+        int readyFd = getReadyIOFd();
+        ...
+        // 对readyFd读写处理
+        ...
+    }
+}
+
+auto pool = createThreadPool(4);
+int accept_fd = accept(...);
+HandleThread thread = pool.getThread();
+thread.addFd(accept_fd);
+```
+
+先创建一个指定线程数量的线程池，主线程获取到新连接后，丢到线程池的一个线程去处理。每个线程初始化后会执行work函数，work函数是一个while死循环，里面的getReadyIOFd会阻塞线程，直到有可读可写的套接字时，才会唤醒线程，去进行连接的读写。
 
 ## 参考链接
 
